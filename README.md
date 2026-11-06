@@ -32,3 +32,4 @@ Lietotājs saņem ieteikumu un labāko ceļošanas sezonu.
 Rezultāts tiek saglabāts datubāzē.
 _______________________________________________________________
 izlabot: pievienot funkciju "pievienot jaunu valsti"
+pievienot attelu ikonas vietas
