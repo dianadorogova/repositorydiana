@@ -1,12 +1,13 @@
 import sqlite3
 import datetime
 
+
 def connect():
     database = sqlite3.connect("celojumi.db")
     database.execute("PRAGMA foreign_keys = ON")
     return database
 
-# pievieno lietotaju un atgriez vinja id
+
 def add_user(vards, uzvards):
     database = connect()
     cursor = database.cursor()
@@ -16,33 +17,35 @@ def add_user(vards, uzvards):
     database.close()
     return lietotaja_id
 
-# dabu visus jautajumus
+
 def get_jautajumi():
     database = connect()
     cursor = database.cursor()
-    cursor.execute("SELECT jautajuma_id, teksts FROM jautajumi")
+    cursor.execute("SELECT jautajuma_id, teksts FROM jautajumi ORDER BY jautajuma_id")
     jautajumi = cursor.fetchall()
     database.close()
     return jautajumi
 
-# dabu visus variantus vienam jautajumam
+
 def get_variants(jautajuma_id):
     database = connect()
     cursor = database.cursor()
-    cursor.execute("SELECT variants_id, teksts FROM atbilzu_varianti WHERE jautajuma_id = ?", (jautajuma_id,))
+    cursor.execute("""SELECT variants_id, teksts FROM atbilzu_varianti
+                      WHERE jautajuma_id = ? ORDER BY variants_id""", (jautajuma_id,))
     varianti = cursor.fetchall()
     database.close()
     return varianti
 
-# saglaba vienu atbildi
+
 def save_atbilde(lietotaja_id, jautajuma_id, variants_id):
     database = connect()
     cursor = database.cursor()
-    cursor.execute("INSERT INTO atbildes (lietotajs_id, jautajuma_id, variants_id) VALUES (?,?,?)", (lietotaja_id, jautajuma_id, variants_id))
+    cursor.execute("INSERT INTO atbildes (lietotajs_id, jautajuma_id, variants_id) VALUES (?,?,?)",
+                   (lietotaja_id, jautajuma_id, variants_id))
     database.commit()
     database.close()
 
-# dabu visas valstis
+
 def get_valstis():
     database = connect()
     cursor = database.cursor()
@@ -51,12 +54,80 @@ def get_valstis():
     database.close()
     return valstis
 
-# saskaita punktus un atrod vispiemerotako valsti
+
+# used by the Admin tab to fill the category dropdown
+def get_kategorijas():
+    database = connect()
+    cursor = database.cursor()
+    cursor.execute("SELECT kategorija_id, nosaukums FROM kategorijas ORDER BY kategorija_id")
+    kategorijas = cursor.fetchall()
+    database.close()
+    return kategorijas
+
+
+def add_valsts(nosaukums, kontinents, apraksts):
+    database = connect()
+    cursor = database.cursor()
+    cursor.execute("INSERT INTO valstis (nosaukums, kontinents, apraksts) VALUES (?,?,?)",
+                   (nosaukums, kontinents, apraksts))
+    database.commit()
+    valsts_id = cursor.lastrowid
+    database.close()
+    return valsts_id
+
+
+# varianti = list of (teksts, kategorija_id, punkti)
+def add_jautajums(teksts, varianti):
+    database = connect()
+    cursor = database.cursor()
+
+    cursor.execute("INSERT INTO jautajumi (teksts) VALUES (?)", (teksts,))
+    jautajuma_id = cursor.lastrowid
+
+    for variants_teksts, kategorija_id, punkti in varianti:
+        cursor.execute("""INSERT INTO atbilzu_varianti (jautajuma_id, teksts, punkti, kategorija_id)
+                          VALUES (?,?,?,?)""",
+                       (jautajuma_id, variants_teksts, punkti, kategorija_id))
+
+    database.commit()
+    database.close()
+    return jautajuma_id
+
+
+# reads one whole table; the name comes from the fixed list in main.py, not from user input
+def get_tabula(tabulas_nosaukums):
+    database = connect()
+    cursor = database.cursor()
+    cursor.execute("SELECT * FROM " + tabulas_nosaukums)
+    kolonnas = [d[0] for d in cursor.description]
+    rindas = cursor.fetchall()
+    database.close()
+    return kolonnas, rindas
+
+
+# returns {valsts_id: sezonas nosaukums}
+def get_sezonas():
+    database = connect()
+    cursor = database.cursor()
+    cursor.execute("""
+        SELECT valstu_sezonas.valsts_id, sezonas.nosaukums
+        FROM valstu_sezonas
+
+        JOIN sezonas
+            ON valstu_sezonas.sezona_id = sezonas.sezona_id
+    """)
+    sezonas = {}
+    for rinda in cursor.fetchall():
+        sezonas[rinda[0]] = rinda[1]
+    database.close()
+    return sezonas
+
+
 def rekinat_rezultatu(lietotaja_id):
     database = connect()
     cursor = database.cursor()
 
-    # 1. saskaita cik punktu lietotajs dabuja katra kategorija
+    # the user's points in each category
     cursor.execute("""
         SELECT
             atbilzu_varianti.kategorija_id,
@@ -75,11 +146,14 @@ def rekinat_rezultatu(lietotaja_id):
     for rinda in cursor.fetchall():
         lietotaja_punkti[rinda[0]] = rinda[1]
 
-    # 2. dabu visas valstis
     cursor.execute("SELECT valsts_id FROM valstis")
     valstis = cursor.fetchall()
 
-    # 3. katrai valstij saskaita kopejos punktus
+    if not valstis:
+        database.close()
+        return None, None, 0, None
+
+    # total score for every country
     labaka_valsts_id = None
     labakie_punkti = -1
 
@@ -98,7 +172,6 @@ def rekinat_rezultatu(lietotaja_id):
             kategorija_id = rinda[0]
             valsts_punkti = rinda[1]
 
-            # ja lietotajam ir punkti saja kategorija
             if kategorija_id in lietotaja_punkti:
                 kopejie_punkti = kopejie_punkti + valsts_punkti * lietotaja_punkti[kategorija_id]
 
@@ -106,7 +179,7 @@ def rekinat_rezultatu(lietotaja_id):
             labakie_punkti = kopejie_punkti
             labaka_valsts_id = valsts_id
 
-    # 4. dabu labakas valsts nosaukumu un labako sezonu
+    # name and best season of the winning country
     cursor.execute("""
         SELECT
             valstis.valsts_id,
@@ -126,19 +199,23 @@ def rekinat_rezultatu(lietotaja_id):
     rinda = cursor.fetchone()
     database.close()
 
+    if rinda is None:
+        return None, None, 0, None
+
     return rinda[0], rinda[1], labakie_punkti, rinda[2]
 
-# saglaba rezultatu
+
 def save_rezultats(lietotaja_id, valsts_id, punkti):
     datums = str(datetime.date.today())
 
     database = connect()
     cursor = database.cursor()
-    cursor.execute("INSERT INTO rezultati (lietotajs_id, valsts_id, punkti, datums) VALUES (?,?,?,?)", (lietotaja_id, valsts_id, punkti, datums))
+    cursor.execute("INSERT INTO rezultati (lietotajs_id, valsts_id, punkti, datums) VALUES (?,?,?,?)",
+                   (lietotaja_id, valsts_id, punkti, datums))
     database.commit()
     database.close()
 
-# dabu visus rezultatus ar vardi un valstim
+
 def get_rezultati():
     database = connect()
     cursor = database.cursor()

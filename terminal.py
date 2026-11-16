@@ -29,7 +29,6 @@ while True:
         for jautajums in get_jautajumi():
             print("\n" + jautajums[1])
 
-            # paradam variantus ar numuriem 1, 2, 3
             varianti = get_variants(jautajums[0])
             numurs = 0
 
@@ -41,8 +40,7 @@ while True:
             variants_id = varianti[skaitlis - 1][0]
 
             save_atbilde(lietotaja_id, jautajums[0], variants_id)
-1
-        # saskaita un saglaba rezultatu
+
         valsts_id, valsts_nosaukums, punkti, sezona = rekinat_rezultatu(lietotaja_id)
         save_rezultats(lietotaja_id, valsts_id, punkti)
 
